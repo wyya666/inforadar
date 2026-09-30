@@ -1,0 +1,23 @@
+server:
+  address: ":8080"
+  frontend_url: "http://127.0.0.1:5173"
+  environment: development
+  trusted_proxies: []
+database:
+  host: "127.0.0.1"
+  port: 3306
+  username: "inforadar"
+  password: "change-me"
+  db: "inforadar"
+auth:
+  jwt_secret: "inforadar-local-jwt-secret-do-not-use-in-production" # local development only
+  cookie_secure: false
+smtp:
+  host: "127.0.0.1"
+  port: 1025
+  username: ""
+  password: ""
+  from: "InfoRadar <no-reply@example.test>"
+  tls_mode: none # local test SMTP only; use starttls or implicit in production
+radar:
+  encryption_key: "0000000000000000000000000000000000000000000000000000000000000000" # local development only
