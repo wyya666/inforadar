@@ -5,7 +5,7 @@ frontend/dist/
 frontend/*.tsbuildinfo
 coverage/
 .DS_Store
-.idea
+/.idea/
 .radar-dev-key
 .jwt-dev-key
 deploy/backups/
