@@ -13,11 +13,11 @@ auth:
   jwt_secret: "inforadar-local-jwt-secret-do-not-use-in-production" # local development only
   cookie_secure: false # false for HTTP; true for HTTPS
 smtp:
-  host: "127.0.0.1"
-  port: 1025
+  host: "" # optional; leave empty to disable password reset emails
+  port: 587
   username: ""
   password: ""
-  from: "InfoRadar <no-reply@example.test>"
-  tls_mode: none # local test SMTP only; use starttls or implicit in production
+  from: ""
+  tls_mode: starttls # use implicit for port 465; none is only allowed in local development
 radar:
   encryption_key: "0000000000000000000000000000000000000000000000000000000000000000" # local development only

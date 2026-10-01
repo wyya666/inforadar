@@ -208,6 +208,9 @@ func (s *Service) RequestPasswordReset(ctx context.Context, rawEmail string) err
 	if err != nil {
 		return err
 	}
+	if s.mailer == nil {
+		return common.ErrPasswordResetUnavailable
+	}
 	user, err := s.repository.UserByEmail(ctx, email)
 	if errors.Is(err, common.ErrNotFound) {
 		return nil

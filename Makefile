@@ -1,4 +1,9 @@
-.PHONY: dev-backend dev-frontend
+.PHONY: dev-backend dev-frontend verify
+
+verify: frontend/node_modules/.package-lock.json
+	go test ./...
+	go vet ./...
+	cd frontend && npm run build
 
 dev-backend:
 	go run ./cmd/server

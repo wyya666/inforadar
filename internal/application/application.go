@@ -52,10 +52,13 @@ func New(ctx context.Context) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	mailer, err := mail.NewSMTPMailer(cfg.SMTP, cfg.Server.FrontendURL)
-	if err != nil {
-		repository.Close()
-		return nil, err
+	var mailer serviceinterface.Mailer
+	if cfg.SMTP.Enabled() {
+		mailer, err = mail.NewSMTPMailer(cfg.SMTP, cfg.Server.FrontendURL)
+		if err != nil {
+			repository.Close()
+			return nil, err
+		}
 	}
 	service, err := userservice.NewService(repository, mailer, cfg.Auth.JWTSecret)
 	if err != nil {

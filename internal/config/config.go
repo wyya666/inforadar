@@ -48,6 +48,11 @@ type SMTP struct {
 	TLSMode  string `mapstructure:"tls_mode"`
 }
 
+// Enabled reports whether password reset email delivery is configured.
+func (s SMTP) Enabled() bool {
+	return strings.TrimSpace(s.Host) != ""
+}
+
 type Radar struct {
 	EncryptionKey string `mapstructure:"encryption_key"`
 }
@@ -136,6 +141,9 @@ func (c Config) Validate() error {
 	}
 	if c.Server.Environment != constants.EnvironmentDevelopment && c.Server.Environment != constants.EnvironmentProduction {
 		return errors.New("server.environment must be development or production")
+	}
+	if !c.SMTP.Enabled() {
+		return nil
 	}
 	if c.SMTP.Host == "" || c.SMTP.From == "" || c.SMTP.Port < 1 || c.SMTP.Port > 65535 {
 		return errors.New("smtp.host, smtp.from and a valid smtp.port are required")

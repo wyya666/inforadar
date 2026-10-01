@@ -8,3 +8,4 @@ coverage/
 .idea
 .radar-dev-key
 .jwt-dev-key
+deploy/backups/

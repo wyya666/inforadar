@@ -5,6 +5,7 @@ export const ApiErrorCode = {
   Network: -1,
   System: 50000,
   RequestTooLarge: 41300,
+  PasswordResetUnavailable: 50302,
   RadarUnconfigured: 40010,
   RadarBusy: 40910,
   RadarCooldown: 42910,

@@ -1,0 +1,109 @@
+name: inforadar
+
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  mysql:
+    <<: *runtime
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: inforadar
+      MYSQL_USER: inforadar
+      MYSQL_PASSWORD: ${INFORADAR_DATABASE_PASSWORD:?Fill INFORADAR_DATABASE_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Fill MYSQL_ROOT_PASSWORD in .env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # SQL is available to the operator, never executed on startup.
+      - ./docs/mysql:/schema:ro
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    stop_grace_period: 60s
+
+  api:
+    <<: *runtime
+    image: inforadar-api:${INFORADAR_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: api
+    environment:
+      INFORADAR_SERVER_ADDRESS: ":8080"
+      INFORADAR_SERVER_ENVIRONMENT: production
+      INFORADAR_SERVER_FRONTEND_URL: ${INFORADAR_SERVER_FRONTEND_URL:?Fill the browser origin in .env}
+      INFORADAR_SERVER_TRUSTED_PROXIES: ${INFORADAR_PROXY_IP:-172.30.90.10}
+      INFORADAR_DATABASE_HOST: mysql
+      INFORADAR_DATABASE_PORT: "3306"
+      INFORADAR_DATABASE_USERNAME: inforadar
+      INFORADAR_DATABASE_PASSWORD: ${INFORADAR_DATABASE_PASSWORD:?Fill INFORADAR_DATABASE_PASSWORD in .env}
+      INFORADAR_DATABASE_DB: inforadar
+      INFORADAR_AUTH_JWT_SECRET: ${INFORADAR_AUTH_JWT_SECRET:?Generate an independent JWT secret in .env}
+      INFORADAR_AUTH_COOKIE_SECURE: "false"
+      INFORADAR_RADAR_ENCRYPTION_KEY: ${INFORADAR_RADAR_ENCRYPTION_KEY:?Generate a radar encryption key in .env}
+      INFORADAR_SMTP_HOST: ${INFORADAR_SMTP_HOST:-}
+      INFORADAR_SMTP_PORT: ${INFORADAR_SMTP_PORT:-465}
+      INFORADAR_SMTP_USERNAME: ${INFORADAR_SMTP_USERNAME:-}
+      INFORADAR_SMTP_PASSWORD: ${INFORADAR_SMTP_PASSWORD:-}
+      INFORADAR_SMTP_FROM: ${INFORADAR_SMTP_FROM:-}
+      INFORADAR_SMTP_TLS_MODE: ${INFORADAR_SMTP_TLS_MODE:-implicit}
+    expose:
+      - "8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    stop_grace_period: 30s
+
+  web:
+    <<: *runtime
+    image: inforadar-web:${INFORADAR_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: web
+    environment:
+      # The official nginx image exports resolvers from /etc/resolv.conf.
+      NGINX_ENTRYPOINT_LOCAL_RESOLVERS: "1"
+      NGINX_ENVSUBST_FILTER: "^NGINX_LOCAL_RESOLVERS$"
+    ports:
+      - "${INFORADAR_HTTP_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      app:
+        ipv4_address: ${INFORADAR_PROXY_IP:-172.30.90.10}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+networks:
+  app:
+    ipam:
+      config:
+        - subnet: ${INFORADAR_DOCKER_SUBNET:-172.30.90.0/24}
+
+volumes:
+  mysql-data:
