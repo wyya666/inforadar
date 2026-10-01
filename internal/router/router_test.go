@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +23,89 @@ import (
 )
 
 type emptyRadarService struct{ serviceinterface.RadarService }
+
+type httpSessionService struct {
+	serviceinterface.UserService
+	refresh string
+}
+
+func (s *httpSessionService) Login(context.Context, string, string) (usermodel.SessionResult, error) {
+	s.refresh = strings.Repeat("a", constants.ActionTokenLength)
+	return usermodel.SessionResult{AccessToken: "access-token", Refresh: s.refresh}, nil
+}
+
+func (s *httpSessionService) Refresh(_ context.Context, raw string) (usermodel.SessionResult, error) {
+	if s.refresh == "" || raw != s.refresh {
+		return usermodel.SessionResult{}, common.ErrNotLogin
+	}
+	s.refresh = strings.Repeat("b", constants.ActionTokenLength)
+	return usermodel.SessionResult{AccessToken: "renewed-access-token", Refresh: s.refresh}, nil
+}
+
+func (s *httpSessionService) Logout(_ context.Context, raw string) error {
+	if raw != s.refresh {
+		return common.ErrNotLogin
+	}
+	s.refresh = ""
+	return nil
+}
+
+func TestProductionHTTPCookieSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := httptest.NewUnstartedServer(nil)
+	cfg := config.Config{
+		Server: config.Server{FrontendURL: "http://" + server.Listener.Addr().String(), Environment: constants.EnvironmentProduction},
+		Auth:   config.Auth{CookieSecure: false},
+	}
+	service := &httpSessionService{}
+	limits := middleware.NewLimiter()
+	server.Config.Handler = newEngine(cfg, userhandler.New(service, cfg, limits), testAuthenticator{err: common.ErrNotLogin}, limits)
+	server.Start()
+	t.Cleanup(server.Close)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := server.Client()
+	client.Jar = jar
+	cookieURL, err := url.Parse(server.URL + constants.RefreshCookiePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, body string, wantStatus int) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, server.URL+constants.APIPrefix+constants.AuthRoute+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", cfg.FrontendOrigin())
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != wantStatus {
+			t.Fatalf("%s status = %d, want %d", path, response.StatusCode, wantStatus)
+		}
+	}
+
+	post(constants.LoginRoute, `{"email":"user@example.test","password":"valid password"}`, http.StatusOK)
+	cookies := jar.Cookies(cookieURL)
+	if len(cookies) != 1 || cookies[0].Value != strings.Repeat("a", constants.ActionTokenLength) {
+		t.Fatalf("HTTP login did not store the refresh cookie: %v", cookies)
+	}
+	post(constants.RefreshRoute, "", http.StatusOK)
+	cookies = jar.Cookies(cookieURL)
+	if len(cookies) != 1 || cookies[0].Value != strings.Repeat("b", constants.ActionTokenLength) {
+		t.Fatalf("HTTP refresh did not rotate the cookie: %v", cookies)
+	}
+	post(constants.LogoutRoute, "", http.StatusOK)
+	if cookies = jar.Cookies(cookieURL); len(cookies) != 0 || service.refresh != "" {
+		t.Fatalf("HTTP logout left an active session: cookies=%v", cookies)
+	}
+	post(constants.RefreshRoute, "", http.StatusUnauthorized)
+}
 
 func TestRadarRoutesRequireAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -140,15 +225,28 @@ func TestAuthenticatedProfileRoute(t *testing.T) {
 
 func TestProductionRequiresConfiguredOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := config.Config{Server: config.Server{FrontendURL: "http://127.0.0.1:5173", Environment: "production"}}
+	cfg := config.Config{Server: config.Server{FrontendURL: "http://203.0.113.10:8081", Environment: constants.EnvironmentProduction}}
 	limits := middleware.NewLimiter()
 	routes := newEngine(cfg, userhandler.New(nil, cfg, limits), testAuthenticator{err: common.ErrNotLogin}, limits)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader("{}"))
-	req.Header.Set("Origin", "http://localhost:5173")
-	response := httptest.NewRecorder()
-	routes.ServeHTTP(response, req)
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("production accepted loopback alias: status=%d, body=%s", response.Code, response.Body.String())
+	for _, tc := range []struct {
+		origin string
+		want   int
+	}{
+		{cfg.FrontendOrigin(), http.StatusBadRequest},
+		{"http://203.0.113.10", http.StatusForbidden},
+		{"http://203.0.113.11:8081", http.StatusForbidden},
+		{"https://203.0.113.10:8081", http.StatusForbidden},
+		{"http://localhost:8081", http.StatusForbidden},
+	} {
+		t.Run(tc.origin, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader("{}"))
+			req.Header.Set("Origin", tc.origin)
+			response := httptest.NewRecorder()
+			routes.ServeHTTP(response, req)
+			if response.Code != tc.want {
+				t.Fatalf("origin %s: status=%d, want=%d, body=%s", tc.origin, response.Code, tc.want, response.Body.String())
+			}
+		})
 	}
 }
 

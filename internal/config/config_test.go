@@ -34,6 +34,34 @@ func TestProductionRejectsExampleKeys(t *testing.T) {
 	}
 }
 
+func TestProductionAllowsHTTPAndHTTPSFrontend(t *testing.T) {
+	for _, tc := range []struct {
+		name, origin string
+		secure       bool
+	}{
+		{name: "HTTP public IP", origin: "http://203.0.113.10"},
+		{name: "HTTP public IP with port", origin: "http://203.0.113.10:8081"},
+		{name: "HTTPS without secure cookie", origin: "https://radar.example.test"},
+		{name: "HTTPS with secure cookie", origin: "https://radar.example.test", secure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{
+				Server:   Server{Address: ":8080", FrontendURL: tc.origin, Environment: constants.EnvironmentProduction},
+				Database: Database{Host: "127.0.0.1", Port: 3306, Username: "user", DB: "inforadar"},
+				Auth:     Auth{JWTSecret: strings.Repeat("b", constants.JWTSecretMinBytes), CookieSecure: tc.secure},
+				SMTP:     SMTP{Host: "smtp.example.test", Port: 465, From: "no-reply@example.test", TLSMode: constants.SMTPTLSImplicit},
+				Radar:    Radar{EncryptionKey: strings.Repeat("a", 64)},
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("production rejected %s: %v", tc.origin, err)
+			}
+			if cfg.FrontendOrigin() != tc.origin {
+				t.Fatalf("frontend origin = %q, want %q", cfg.FrontendOrigin(), tc.origin)
+			}
+		})
+	}
+}
+
 func TestExampleConfigHasDevelopmentKeys(t *testing.T) {
 	path, err := filepath.Abs("../../config.example.yaml")
 	if err != nil {

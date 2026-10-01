@@ -1,6 +1,6 @@
 server:
   address: ":8080"
-  frontend_url: "http://127.0.0.1:5173"
+  frontend_url: "http://127.0.0.1:5173" # actual browser origin; HTTP public IPs are supported in production
   environment: development
   trusted_proxies: []
 database:
@@ -11,7 +11,7 @@ database:
   db: "inforadar"
 auth:
   jwt_secret: "inforadar-local-jwt-secret-do-not-use-in-production" # local development only
-  cookie_secure: false
+  cookie_secure: false # false for HTTP; true for HTTPS
 smtp:
   host: "127.0.0.1"
   port: 1025

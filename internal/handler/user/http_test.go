@@ -14,6 +14,7 @@ import (
 	usermodel "inforadar/internal/api/model/user"
 	"inforadar/internal/common"
 	"inforadar/internal/config"
+	"inforadar/internal/constants"
 	serviceinterface "inforadar/internal/service/interface"
 )
 
@@ -45,15 +46,32 @@ func TestHandleErrorUsesCommonEnvelope(t *testing.T) {
 
 func TestRefreshCookieFlags(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := config.Config{Auth: config.Auth{CookieSecure: true}}
-	h := &Handler{config: cfg}
-	response := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(response)
-	h.setRefreshCookie(c, strings.Repeat("a", 64))
-	cookie := response.Header().Get("Set-Cookie")
-	for _, flag := range []string{"HttpOnly", "Secure", "SameSite=Lax", "Path=/api/v1/auth"} {
-		if !strings.Contains(cookie, flag) {
-			t.Fatalf("cookie missing %s: %s", flag, cookie)
+	for _, secure := range []bool{false, true} {
+		for _, clear := range []bool{false, true} {
+			t.Run(fmt.Sprintf("secure=%t/clear=%t", secure, clear), func(t *testing.T) {
+				h := &Handler{config: config.Config{Auth: config.Auth{CookieSecure: secure}}}
+				response := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(response)
+				if clear {
+					h.clearRefreshCookie(c)
+				} else {
+					h.setRefreshCookie(c, strings.Repeat("a", 64))
+				}
+				cookies := response.Result().Cookies()
+				if len(cookies) != 1 {
+					t.Fatalf("cookies = %v, want one refresh cookie", cookies)
+				}
+				cookie := cookies[0]
+				if cookie.Name != constants.RefreshCookieName || cookie.Secure != secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != constants.RefreshCookiePath {
+					t.Fatalf("unexpected refresh cookie flags: %s", cookie)
+				}
+				if clear && (cookie.Value != "" || cookie.MaxAge >= 0) {
+					t.Fatalf("refresh cookie was not cleared: %s", cookie)
+				}
+				if !clear && (cookie.Value != strings.Repeat("a", 64) || cookie.MaxAge != int(constants.RefreshTTL.Seconds())) {
+					t.Fatalf("unexpected refresh cookie value or lifetime: %s", cookie)
+				}
+			})
 		}
 	}
 }
